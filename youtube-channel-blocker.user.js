@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Blocker
 // @namespace    https://github.com/local/yt-channel-blocker
-// @version      5.1
+// @version      5.3
 // @description  Block channels from YouTube — button on /watch page, hides blocked channels sitewide
 // @author       local
 // @match        https://www.youtube.com/*
@@ -13,7 +13,8 @@
 
 (function () {
   'use strict';
-
+  const BTN_NAMEBLOCK = '⊘ Block';
+  const BTN_NAMEBLOCKED = '✕ Blocked';
   // ─── Storage ──────────────────────────────────────────────────────────────────
 
   const STORAGE_KEY = 'yt_blocked_channels';
@@ -85,8 +86,9 @@
   }
 
   function shouldBlock(name) {
-    if (!name) return false;
-    return blockedChannels.some(b => name.includes(b) || b.includes(name));
+    const normalizedName = normalizeChannelName(name);
+    if (!normalizedName) return false;
+    return blockedChannels.some(b => normalizedName.includes(b) || b.includes(normalizedName));
   }
 
   function applyFilter(card) {
@@ -143,6 +145,12 @@
   `);
 
   let blockBtn = null;
+  let watchRefreshInterval = null;
+  let blockBtnRefreshPending = false;
+
+  function normalizeChannelName(name) {
+    return (name || '').toLowerCase().trim();
+  }
 
   function getWatchChannelName() {
     // Canonical source on watch page
@@ -166,13 +174,13 @@
     if (!blockBtn) return;
     const name = getWatchChannelName();
     if (!name) return;
-    blockBtn.dataset.channel = name.toLowerCase();
+    blockBtn.dataset.channel = normalizeChannelName(name);
     if (shouldBlock(name)) {
-      blockBtn.textContent = '✕ Blocked';
+      blockBtn.textContent = BTN_NAMEBLOCKED;
       blockBtn.classList.add('ytb-is-blocked');
       blockBtn.disabled = true;
     } else {
-      blockBtn.textContent = '⊘ Block channel';
+      blockBtn.textContent = BTN_NAMEBLOCK;
       blockBtn.classList.remove('ytb-is-blocked');
       blockBtn.disabled = false;
     }
@@ -190,15 +198,20 @@
     if (!subscribeContainer) return;
 
     // Don't inject twice
-    if (document.getElementById('ytb-block-btn')) {
+    const existing = document.getElementById('ytb-block-btn');
+    if (existing) {
+      blockBtn = existing;
       updateBlockBtn();
       return;
     }
 
-    blockBtn = el('button', { id: 'ytb-block-btn' }, '⊘ Block channel');
+    blockBtn = el('button', { id: 'ytb-block-btn', type: 'button' }, BTN_NAMEBLOCK);
     blockBtn.addEventListener('click', (e) => {
+      e.preventDefault();
       e.stopPropagation();
-      const name = blockBtn.dataset.channel;
+      e.stopImmediatePropagation();
+      updateBlockBtn();
+      const name = normalizeChannelName(blockBtn.dataset.channel || getWatchChannelName());
       if (!name) return;
       if (blockedChannels.includes(name)) {
         // Already blocked — just update UI to reflect reality
@@ -215,23 +228,43 @@
     updateBlockBtn();
   }
 
+  function scheduleBlockBtnRefresh() {
+    if (blockBtnRefreshPending || !location.pathname.startsWith('/watch')) return;
+    blockBtnRefreshPending = true;
+    requestAnimationFrame(() => {
+      blockBtnRefreshPending = false;
+      injectBlockBtn();
+    });
+  }
+
   // ─── SPA navigation — YouTube doesn't do full page reloads ───────────────────
 
   function onNavigate() {
-    // Remove stale button when navigating away from /watch
-    const existing = document.getElementById('ytb-block-btn');
-    if (existing) existing.remove();
-    blockBtn = null;
-
-    if (location.pathname.startsWith('/watch')) {
-      // Channel name loads async — retry until found
-      let attempts = 0;
-      const interval = setInterval(() => {
-        attempts++;
-        injectBlockBtn();
-        if (document.getElementById('ytb-block-btn') || attempts > 40) clearInterval(interval);
-      }, 250);
+    if (watchRefreshInterval) {
+      clearInterval(watchRefreshInterval);
+      watchRefreshInterval = null;
     }
+
+    const existing = document.getElementById('ytb-block-btn');
+    if (!location.pathname.startsWith('/watch')) {
+      // Remove stale button when navigating away from /watch
+      if (existing) existing.remove();
+      blockBtn = null;
+      return;
+    }
+
+    // YouTube changes the URL before replacing watch metadata, so keep refreshing
+    // through the async swap instead of stopping at the first channel value.
+    let attempts = 0;
+    injectBlockBtn();
+    watchRefreshInterval = setInterval(() => {
+      attempts++;
+      injectBlockBtn();
+      if (attempts > 40) {
+        clearInterval(watchRefreshInterval);
+        watchRefreshInterval = null;
+      }
+    }, 250);
   }
 
   // Intercept pushState/replaceState for SPA nav detection
@@ -244,7 +277,7 @@
         return result;
       };
     };
-    history.pushState    = patchHistory['push']    = orig('pushState');
+    history.pushState = patchHistory['push'] = orig('pushState');
     history.replaceState = patchHistory['replace'] = orig('replaceState');
   }
 
@@ -254,12 +287,18 @@
     if (!document.body) { setTimeout(init, 50); return; }
 
     patchHistory();
-    window.addEventListener('popstate',     onNavigate);
+    window.addEventListener('popstate', onNavigate);
     window.addEventListener('ytb-navigate', onNavigate);
+    window.addEventListener('yt-navigate-start', onNavigate);
+    window.addEventListener('yt-navigate-finish', onNavigate);
+    window.addEventListener('yt-page-data-updated', scheduleBlockBtnRefresh);
 
     // Filter observer — runs on all pages
     new MutationObserver(mutations => {
-      if (mutations.some(m => m.addedNodes.length > 0)) scheduleFilter();
+      if (mutations.some(m => m.addedNodes.length > 0)) {
+        scheduleFilter();
+        scheduleBlockBtnRefresh();
+      }
     }).observe(document.body, { childList: true, subtree: true });
 
     // Initial run
