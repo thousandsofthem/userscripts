@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Blocker
 // @namespace    https://github.com/local/yt-channel-blocker
-// @version      5.3
+// @version      5.4
 // @description  Block channels from YouTube — button on /watch page, hides blocked channels sitewide
 // @author       local
 // @match        https://www.youtube.com/*
@@ -85,10 +85,17 @@
     return null;
   }
 
+  function blockEntryMatches(name, blockEntry) {
+    const normalizedName = normalizeChannelName(name);
+    const normalizedBlockEntry = normalizeChannelName(blockEntry);
+    if (!normalizedName || !normalizedBlockEntry) return false;
+    return normalizedName.includes(normalizedBlockEntry) || normalizedBlockEntry.includes(normalizedName);
+  }
+
   function shouldBlock(name) {
     const normalizedName = normalizeChannelName(name);
     if (!normalizedName) return false;
-    return blockedChannels.some(b => normalizedName.includes(b) || b.includes(normalizedName));
+    return blockedChannels.some(b => blockEntryMatches(normalizedName, b));
   }
 
   function applyFilter(card) {
@@ -178,7 +185,7 @@
     if (shouldBlock(name)) {
       blockBtn.textContent = BTN_NAMEBLOCKED;
       blockBtn.classList.add('ytb-is-blocked');
-      blockBtn.disabled = true;
+      blockBtn.disabled = false;
     } else {
       blockBtn.textContent = BTN_NAMEBLOCK;
       blockBtn.classList.remove('ytb-is-blocked');
@@ -213,9 +220,11 @@
       updateBlockBtn();
       const name = normalizeChannelName(blockBtn.dataset.channel || getWatchChannelName());
       if (!name) return;
-      if (blockedChannels.includes(name)) {
-        // Already blocked — just update UI to reflect reality
+      if (shouldBlock(name)) {
+        blockedChannels = blockedChannels.filter(b => !blockEntryMatches(name, b));
+        saveBlocklist(blockedChannels);
         updateBlockBtn();
+        runFilter();
         return;
       }
       blockedChannels.push(name);
