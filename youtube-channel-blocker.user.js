@@ -1,14 +1,18 @@
 // ==UserScript==
 // @name         YouTube Channel Blocker
-// @namespace    https://github.com/local/yt-channel-blocker
+// @namespace    https://github.com/thousandsofthem/userscripts
 // @version      5.4
-// @description  Block channels from YouTube — button on /watch page, hides blocked channels sitewide
-// @author       local
+// @description  Adds a channel block toggle on YouTube watch pages and hides blocked channels sitewide.
+// @author       thousandsofthem
 // @match        https://www.youtube.com/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @run-at       document-start
+// @homepageURL  https://github.com/thousandsofthem/userscripts
+// @supportURL   https://github.com/thousandsofthem/userscripts/issues
+// @updateURL    https://raw.githubusercontent.com/thousandsofthem/userscripts/master/youtube-channel-blocker.user.js
+// @downloadURL  https://raw.githubusercontent.com/thousandsofthem/userscripts/master/youtube-channel-blocker.user.js
 // ==/UserScript==
 
 (function () {
